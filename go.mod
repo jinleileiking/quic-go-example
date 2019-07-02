@@ -1,4 +1,4 @@
-module quicc
+module quic-go-example
 
 go 1.12.6
 
