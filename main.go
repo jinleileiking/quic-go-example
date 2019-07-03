@@ -10,6 +10,7 @@ import (
 	"io"
 	"math/big"
 	"os"
+	"time"
 
 	quic "github.com/lucas-clemente/quic-go"
 	"github.com/op/go-logging"
@@ -72,7 +73,7 @@ func (w loggingWriter) Write(b []byte) (int, error) {
 }
 
 func server(serverInfo string) error {
-	listener, err := quic.ListenAddr(serverInfo, generateTLSConfig(), nil)
+	listener, err := quic.ListenAddr(serverInfo, generateTLSConfig(), &quic.Config{IdleTimeout: 5 * time.Minute})
 	log.Info("Listen done")
 	if err != nil {
 		return err
