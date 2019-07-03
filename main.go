@@ -40,6 +40,7 @@ func initLog() {
 }
 
 func main() {
+	initLog()
 	flag.Parse()
 
 	if *typ == "client" {
@@ -47,7 +48,8 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
-		log.Error("Done")
+		log.Info("Done")
+		return
 	}
 
 	if *typ == "server" {
@@ -55,7 +57,8 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
-		log.Error("Done")
+		log.Info("Done")
+		return
 	}
 
 	log.Error("type must be server or client")
@@ -64,7 +67,7 @@ func main() {
 type loggingWriter struct{ io.Writer }
 
 func (w loggingWriter) Write(b []byte) (int, error) {
-	log.Infof("Got '%s'\n", string(b))
+	log.Infof("Got and Send '%s'\n", string(b))
 	return w.Writer.Write(b)
 }
 
@@ -74,18 +77,28 @@ func server(serverInfo string) error {
 	if err != nil {
 		return err
 	}
-	sess, err := listener.Accept()
-	if err != nil {
-		return err
+
+	for {
+		log.Info("Accept started")
+		sess, err := listener.Accept()
+		if err != nil {
+			return err
+		}
+		log.Info("Accept done")
+
+		go func() {
+			stream, err := sess.AcceptStream()
+			if err != nil {
+				log.Errorf("AcceptStream error %s\n", err.Error())
+			}
+			_, err = io.Copy(loggingWriter{stream}, stream)
+			if err != nil {
+				log.Errorf("ioCopy error %s\n", err.Error())
+			}
+			return
+		}()
 	}
-	log.Info("Accept done")
-	stream, err := sess.AcceptStream()
-	if err != nil {
-		panic(err)
-	}
-	// Echo through the loggingWriter
-	_, err = io.Copy(loggingWriter{stream}, stream)
-	return err
+
 }
 
 func client(serverInfo string) error {
