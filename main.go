@@ -9,14 +9,13 @@ import (
 	"flag"
 	"io"
 	"math/big"
+	mrand "math/rand"
 	"os"
 	"time"
 
 	quic "github.com/lucas-clemente/quic-go"
 	"github.com/op/go-logging"
 )
-
-const message = "foobar"
 
 var log = logging.MustGetLogger("example")
 
@@ -26,6 +25,12 @@ var format = logging.MustStringFormatter(
 
 var serverInfo = flag.String("s", "localhost:6666", "quic server host and port")
 var typ = flag.String("t", "server", "quic server or client. Client will send a message and waiting for receiving a message. Server will receive a message and echo back")
+var intval = flag.Int("intval", 1000, "[client] send intval ms")
+var cnt = flag.Int("c", 1, "[client] send count")
+var message = flag.String("m", "hello gquic from client", "[client] send content")
+var isRandom = flag.Bool("r", false, "[client] use random string, works with rlen")
+var rlen = flag.Int("rlen", 10, "[client] random string len, works with r")
+var dump = flag.Bool("d", false, "dump content?")
 
 func initLog() {
 
@@ -68,7 +73,9 @@ func main() {
 type loggingWriter struct{ io.Writer }
 
 func (w loggingWriter) Write(b []byte) (int, error) {
-	log.Infof("Got and Send '%s'\n", string(b))
+	if *dump {
+		log.Infof("Got and Send '%s'\n", string(b))
+	}
 	return w.Writer.Write(b)
 }
 
@@ -118,20 +125,43 @@ func client(serverInfo string) error {
 
 	log.Info("Sync Ok")
 
-	log.Infof("Client: Sending '%s'\n", message)
-	_, err = stream.Write([]byte(message))
-	if err != nil {
-		return err
-	}
-	log.Info("Done")
+	msg := *message
 
-	log.Info("waiting for receive.............")
-	buf := make([]byte, len(message))
-	_, err = io.ReadFull(stream, buf)
-	if err != nil {
-		return err
+	for c := 0; c < *cnt; c++ {
+		if *isRandom {
+			msg = RandStringRunes(*rlen)
+		}
+
+		if *dump {
+			log.Infof("Client: Snd '%s', count : %d\n", msg, c)
+		} else {
+			log.Infof("Client: Snd count : %d\n", c)
+		}
+		_, err = stream.Write([]byte(msg))
+		if err != nil {
+			return err
+		}
+		log.Info("Done")
+
+		log.Info("waiting for receive.............")
+		buf := make([]byte, len(msg))
+		_, err = io.ReadFull(stream, buf)
+		if err != nil {
+			return err
+		}
+
+		if *dump {
+			log.Infof("Client: Got '%s'\n", buf)
+		} else {
+			log.Infof("Client: Got \n")
+		}
+
+		if string(buf) != msg {
+			log.Error("send and receive is not same")
+		}
+
+		time.Sleep(time.Duration(*intval) * time.Millisecond)
 	}
-	log.Infof("Client: Got '%s'\n", buf)
 
 	return nil
 }
@@ -154,4 +184,18 @@ func generateTLSConfig() *tls.Config {
 		panic(err)
 	}
 	return &tls.Config{Certificates: []tls.Certificate{tlsCert}}
+}
+
+func init() {
+	mrand.Seed(time.Now().UnixNano())
+}
+
+var letterRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+func RandStringRunes(n int) string {
+	b := make([]rune, n)
+	for i := range b {
+		b[i] = letterRunes[mrand.Intn(len(letterRunes))]
+	}
+	return string(b)
 }
