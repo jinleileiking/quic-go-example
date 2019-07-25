@@ -31,6 +31,7 @@ var message = flag.String("m", "hello gquic from client", "[client] send content
 var isRandom = flag.Bool("r", false, "[client] use random string, works with rlen")
 var rlen = flag.Int("rlen", 10, "[client] random string len, works with r")
 var dump = flag.Bool("d", false, "dump content?")
+var echo = flag.Bool("e", false, "[server]echo the data?")
 
 func initLog() {
 
@@ -74,7 +75,7 @@ type loggingWriter struct{ io.Writer }
 
 func (w loggingWriter) Write(b []byte) (int, error) {
 	if *dump {
-		log.Infof("Got and Send '%s'\n", string(b))
+		log.Infof("Got and send '%s'\n", string(b))
 	}
 	return w.Writer.Write(b)
 }
@@ -99,9 +100,15 @@ func server(serverInfo string) error {
 			if err != nil {
 				log.Errorf("AcceptStream error %s\n", err.Error())
 			}
-			_, err = io.Copy(loggingWriter{stream}, stream)
-			if err != nil {
-				log.Errorf("ioCopy error %s\n", err.Error())
+
+			if *echo {
+				_, err = io.Copy(loggingWriter{stream}, stream)
+				if err != nil {
+					log.Errorf("ioCopy error %s\n", err.Error())
+				}
+			} else {
+				for {
+				}
 			}
 			return
 		}()
