@@ -15,6 +15,7 @@ import (
 
 	quic "github.com/lucas-clemente/quic-go"
 	"github.com/op/go-logging"
+	"github.com/pkg/errors"
 )
 
 var log = logging.MustGetLogger("example")
@@ -80,8 +81,17 @@ func (w loggingWriter) Write(b []byte) (int, error) {
 	return w.Writer.Write(b)
 }
 
+type loggingReader struct{ io.Reader }
+
+func (w loggingReader) Read(b []byte) (int, error) {
+	if *dump {
+		log.Infof("Got '%s'\n", string(b))
+	}
+	return w.Reader.Read(b)
+}
+
 func server(serverInfo string) error {
-	listener, err := quic.ListenAddr(serverInfo, generateTLSConfig(), &quic.Config{IdleTimeout: 5 * time.Minute})
+	listener, err := quic.ListenAddr(serverInfo, generateTLSConfig(), &quic.Config{IdleTimeout: 50 * time.Minute})
 	log.Info("Listen done")
 	if err != nil {
 		return err
@@ -102,12 +112,20 @@ func server(serverInfo string) error {
 			}
 
 			if *echo {
-				_, err = io.Copy(loggingWriter{stream}, stream)
+				var n int64
+				n, err = io.Copy(loggingWriter{stream}, stream)
 				if err != nil {
 					log.Errorf("ioCopy error %s\n", err.Error())
 				}
+				log.Infof("Read %d bytes\n", n)
 			} else {
+				// var n int
+				// buf := make([]byte, 10000)
 				for {
+					// if n, err = io.ReadFull(loggingReader{stream}, buf); err != nil {
+					// 	log.Errorf("io.Read error %s\n", err.Error())
+					// }
+					// log.Infof("Read %d bytes\n", n)
 				}
 			}
 			return
@@ -118,7 +136,7 @@ func server(serverInfo string) error {
 
 func client(serverInfo string) error {
 	log.Info("Dialing....")
-	session, err := quic.DialAddr(serverInfo, &tls.Config{InsecureSkipVerify: true}, nil)
+	session, err := quic.DialAddr(serverInfo, &tls.Config{InsecureSkipVerify: true}, &quic.Config{IdleTimeout: 50 * time.Minute})
 	if err != nil {
 		return err
 	}
@@ -127,7 +145,7 @@ func client(serverInfo string) error {
 
 	stream, err := session.OpenStreamSync()
 	if err != nil {
-		return err
+		return errors.Wrap(err, "OpenStreamSync failed")
 	}
 
 	log.Info("Sync Ok")
@@ -146,7 +164,7 @@ func client(serverInfo string) error {
 		}
 		_, err = stream.Write([]byte(msg))
 		if err != nil {
-			return err
+			return errors.Wrap(err, "stream.Write failed")
 		}
 		log.Info("Done")
 
@@ -154,7 +172,7 @@ func client(serverInfo string) error {
 		buf := make([]byte, len(msg))
 		_, err = io.ReadFull(stream, buf)
 		if err != nil {
-			return err
+			return errors.Wrap(err, "io.ReadFull error")
 		}
 
 		if *dump {
