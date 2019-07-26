@@ -169,23 +169,35 @@ func client(serverInfo string) error {
 		log.Info("Done")
 
 		log.Info("waiting for receive.............")
-		buf := make([]byte, len(msg))
-		_, err = io.ReadFull(stream, buf)
-		if err != nil {
-			return errors.Wrap(err, "io.ReadFull error")
-		}
+		var n int
 
-		if *dump {
-			log.Infof("Client: Got '%s'\n", buf)
-		} else {
-			log.Infof("Client: Got \n")
+		buf := make([]byte, len(msg))
+		var rcvTotalLen int
+
+		for rcvTotalLen < len(msg) {
+			n, err = stream.Read(buf[rcvTotalLen:])
+			// n, err = stream.Read(buf)
+
+			rcvTotalLen += n
+			if err != nil {
+				return errors.Wrap(err, "io.Read error")
+			}
+
+			if *dump {
+				log.Infof("Client: Got %d bytes: '%s'\n", n, buf)
+			} else {
+				log.Infof("Client: Got %d bytes\n", n)
+			}
+
 		}
 
 		if string(buf) != msg {
-			log.Error("send and receive is not same")
+			log.Errorf("send and receive is not same\n send:%s\n recv:%s\n", msg, buf)
 		}
 
-		time.Sleep(time.Duration(*intval) * time.Millisecond)
+		if *cnt != 1 {
+			time.Sleep(time.Duration(*intval) * time.Millisecond)
+		}
 	}
 
 	return nil
