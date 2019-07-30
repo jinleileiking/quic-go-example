@@ -32,7 +32,7 @@ var message = flag.String("m", "hello gquic from client", "[client] send content
 var isRandom = flag.Bool("r", false, "[client] use random string, works with rlen")
 var rlen = flag.Int("rlen", 10, "[client] random string len, works with r")
 var dump = flag.Bool("d", false, "dump content?")
-var echo = flag.Bool("e", false, "[server]echo the data?")
+var echo = flag.Bool("e", true, "echo / check  echo the data?")
 
 func initLog() {
 
@@ -113,19 +113,21 @@ func server(serverInfo string) error {
 
 			if *echo {
 				var n int64
+				log.Warning("ioCopy ..........")
 				n, err = io.Copy(loggingWriter{stream}, stream)
+				log.Warning("ioCopy done......")
 				if err != nil {
 					log.Errorf("ioCopy error %s\n", err.Error())
 				}
 				log.Infof("Read %d bytes\n", n)
 			} else {
-				// var n int
-				// buf := make([]byte, 10000)
+				var n int
+				buf := make([]byte, 10000)
 				for {
-					// if n, err = io.ReadFull(loggingReader{stream}, buf); err != nil {
-					// 	log.Errorf("io.Read error %s\n", err.Error())
-					// }
-					// log.Infof("Read %d bytes\n", n)
+					if n, err = io.ReadFull(loggingReader{stream}, buf); err != nil {
+						log.Errorf("io.Read error %s\n", err.Error())
+					}
+					log.Infof("Read %d bytes\n", n)
 				}
 			}
 			return
@@ -162,38 +164,48 @@ func client(serverInfo string) error {
 		} else {
 			log.Infof("Client: Snd count : %d\n", c)
 		}
-		_, err = stream.Write([]byte(msg))
+		startTime := time.Now()
+		var writeBytes int
+		writeBytes, err = stream.Write([]byte(msg))
 		if err != nil {
 			return errors.Wrap(err, "stream.Write failed")
 		}
-		log.Info("Done")
+		log.Info("Done, bytes:", writeBytes)
 
-		log.Info("waiting for receive.............")
-		var n int
+		if *echo {
+			log.Info("waiting for receive.............")
+			var n int
 
-		buf := make([]byte, len(msg))
-		var rcvTotalLen int
+			buf := make([]byte, len(msg))
+			var rcvTotalLen int
 
-		for rcvTotalLen < len(msg) {
-			n, err = stream.Read(buf[rcvTotalLen:])
-			// n, err = stream.Read(buf)
+			for rcvTotalLen < len(msg) {
+				log.Warning("Reading......")
+				n, err = stream.Read(buf[rcvTotalLen:])
+				log.Warning("Reading......done")
+				// n, err = stream.Read(buf)
 
-			rcvTotalLen += n
-			if err != nil {
-				return errors.Wrap(err, "io.Read error")
+				rcvTotalLen += n
+				if err != nil {
+					return errors.Wrap(err, "io.Read error")
+				}
+
+				if *dump {
+					log.Infof("Client: Got %d bytes: '%s'\n", n, buf)
+				} else {
+					log.Infof("Client: Got %d bytes\n", n)
+				}
+
 			}
 
-			if *dump {
-				log.Infof("Client: Got %d bytes: '%s'\n", n, buf)
-			} else {
-				log.Infof("Client: Got %d bytes\n", n)
+			if string(buf) != msg {
+				log.Errorf("send and receive is not same\n send:%s\n recv:%s\n", msg, buf)
 			}
 
 		}
 
-		if string(buf) != msg {
-			log.Errorf("send and receive is not same\n send:%s\n recv:%s\n", msg, buf)
-		}
+		elapsed := time.Since(startTime)
+		log.Infof("Cost: %s\n", elapsed)
 
 		if *cnt != 1 {
 			time.Sleep(time.Duration(*intval) * time.Millisecond)
