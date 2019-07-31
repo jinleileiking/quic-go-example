@@ -112,14 +112,41 @@ func server(serverInfo string) error {
 			}
 
 			if *echo {
-				var n int64
-				log.Warning("ioCopy ..........")
+				// var n int64
+				// log.Warning("ioCopy ..........")
 				n, err = io.Copy(loggingWriter{stream}, stream)
-				log.Warning("ioCopy done......")
-				if err != nil {
-					log.Errorf("ioCopy error %s\n", err.Error())
-				}
-				log.Infof("Read %d bytes\n", n)
+
+				recvBuf := make(chan []byte, 1000)
+
+				go func() {
+					var n int
+					buf := make([]byte, 10000)
+					for {
+						log.Error("-----------------------------Read-------------------\n")
+						if n, err = io.ReadFull(stream, buf); err != nil {
+							log.Errorf("io.Read error %s\n", err.Error())
+						}
+						log.Errorf("-----------------------------Read %d bytes------done\n", n)
+						recvBuf <- buf
+						log.Errorf("-----------------------------Sending channel------done\n", n)
+					}
+				}()
+
+				go func() {
+					for {
+						buf := <-recvBuf
+						var writeBytes int
+						log.Error("-----------------------------Write-------------------\n")
+						writeBytes, err = stream.Write(buf)
+						if err != nil {
+							log.Error("stream.Write failed")
+						}
+						log.Error("-------------------------write Done, bytes:", writeBytes)
+
+					}
+				}()
+
+				// log.Warning("ioCopy done......")
 			} else {
 				var n int
 				buf := make([]byte, 10000)
