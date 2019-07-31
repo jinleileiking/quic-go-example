@@ -125,6 +125,7 @@ func server(serverInfo string) error {
 						log.Error("-----------------------------Read-------------------\n")
 						if n, err = io.ReadFull(stream, buf); err != nil {
 							log.Errorf("io.Read error %s\n", err.Error())
+							panic(err)
 						}
 						log.Errorf("-----------------------------Read %d bytes------done\n", n)
 						recvBuf <- buf
@@ -140,6 +141,7 @@ func server(serverInfo string) error {
 						writeBytes, err = stream.Write(buf)
 						if err != nil {
 							log.Error("stream.Write failed")
+							panic(err)
 						}
 						log.Error("-------------------------write Done, bytes:", writeBytes)
 
