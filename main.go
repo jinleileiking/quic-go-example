@@ -5,9 +5,12 @@ import (
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/pem"
 	"flag"
+	"fmt"
 	"io"
+	"io/ioutil"
 	"math/big"
 	mrand "math/rand"
 	"os"
@@ -36,11 +39,10 @@ var echo = flag.Bool("e", true, "echo / check  echo the data?")
 
 func initLog() {
 
-	backend1 := logging.NewLogBackend(os.Stderr, "", 0)
-	backend2 := logging.NewLogBackend(os.Stderr, "", 0)
-
+	backend2 := logging.NewLogBackend(os.Stdout, "", 0)
 	backend2Formatter := logging.NewBackendFormatter(backend2, format)
 
+	backend1 := logging.NewLogBackend(os.Stdout, "", 0)
 	backend1Leveled := logging.AddModuleLevel(backend1)
 	backend1Leveled.SetLevel(logging.ERROR, "")
 
@@ -50,7 +52,7 @@ func initLog() {
 func main() {
 	initLog()
 	flag.Parse()
-
+	// getCyrpto()
 	if *typ == "client" {
 		err := client(*serverInfo)
 		if err != nil {
@@ -91,10 +93,17 @@ func (w loggingReader) Read(b []byte) (int, error) {
 }
 
 func server(serverInfo string) error {
-	listener, err := quic.ListenAddr(serverInfo, generateTLSConfig(), &quic.Config{IdleTimeout: 50 * time.Minute})
+	var err error
+	var tlsCfg tls.Config
+	tlsCfg, err = getTLSConfig()
+	if err != nil {
+		return errors.Wrap(err, "parseKey failed")
+	}
+
+	listener, err := quic.ListenAddr(serverInfo, &tlsCfg, &quic.Config{IdleTimeout: 50 * time.Minute})
 	log.Info("Listen done")
 	if err != nil {
-		return err
+		return errors.Wrap(err, "ListenAddr failed")
 	}
 
 	for {
@@ -114,7 +123,7 @@ func server(serverInfo string) error {
 			if *echo {
 				// var n int64
 				// log.Warning("ioCopy ..........")
-				n, err = io.Copy(loggingWriter{stream}, stream)
+				// n, err = io.Copy(loggingWriter{stream}, stream)
 
 				recvBuf := make(chan []byte, 1000)
 
@@ -166,8 +175,18 @@ func server(serverInfo string) error {
 }
 
 func client(serverInfo string) error {
+
+	pool := x509.NewCertPool()
+	caCertPath := "ca.crt"
+
+	caCrt, err := ioutil.ReadFile(caCertPath)
+	if err != nil {
+		return errors.Wrap(err, "ReadFile failed")
+	}
+	pool.AppendCertsFromPEM(caCrt)
+
 	log.Info("Dialing....")
-	session, err := quic.DialAddr(serverInfo, &tls.Config{InsecureSkipVerify: true}, &quic.Config{IdleTimeout: 50 * time.Minute})
+	session, err := quic.DialAddr(serverInfo, &tls.Config{RootCAs: pool, InsecureSkipVerify: false}, &quic.Config{IdleTimeout: 50 * time.Minute})
 	if err != nil {
 		return err
 	}
@@ -244,24 +263,56 @@ func client(serverInfo string) error {
 	return nil
 }
 
-func generateTLSConfig() *tls.Config {
-	key, err := rsa.GenerateKey(rand.Reader, 1024)
+func getFile(file string) ([]byte, error) {
+	bytes, err := ioutil.ReadFile(file)
 	if err != nil {
-		panic(err)
+		return nil, errors.Wrap(err, "ioutil.ReadFile failed")
 	}
-	template := x509.Certificate{SerialNumber: big.NewInt(1)}
-	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
-	if err != nil {
-		panic(err)
-	}
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	return bytes, nil
+}
 
-	tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
+// func generateTLSConfig() *tls.Config {
+// 	key, err := rsa.GenerateKey(rand.Reader, 1024)
+// 	if err != nil {
+// 		panic(err)
+// 	}
+// 	template := x509.Certificate{SerialNumber: big.NewInt(1)}
+// 	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+// 	if err != nil {
+// 		panic(err)
+// 	}
+// 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+// 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+
+// 	tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
+// 	if err != nil {
+// 		panic(err)
+// 	}
+// 	return &tls.Config{Certificates: []tls.Certificate{tlsCert}}
+// }
+
+func getTLSConfig() (tls.Config, error) {
+
+	tlsCert, err := tls.LoadX509KeyPair("server.crt", "server.key")
 	if err != nil {
-		panic(err)
+		return tls.Config{}, errors.Wrap(err, "LoadX509KeyPair failed")
 	}
-	return &tls.Config{Certificates: []tls.Certificate{tlsCert}}
+
+	// certPem, err := getFile("cert.pem")
+	// if err != nil {
+	// 	return tls.Config{}, errors.Wrap(err, "parseCert failed")
+	// }
+
+	// keyPem, err := getFile("key.pem")
+	// if err != nil {
+	// 	return tls.Config{}, errors.Wrap(err, "parseKey failed")
+	// }
+
+	// tlsCert, err := tls.X509KeyPair(certPem, keyPem)
+	// if err != nil {
+	// 	return tls.Config{}, errors.Wrap(err, "X509KeyPair failed")
+	// }
+	return tls.Config{Certificates: []tls.Certificate{tlsCert}}, nil
 }
 
 func init() {
@@ -276,4 +327,64 @@ func RandStringRunes(n int) string {
 		b[i] = letterRunes[mrand.Intn(len(letterRunes))]
 	}
 	return string(b)
+}
+
+func getCyrpto() {
+
+	// Generate pem file
+	if _, err := os.Stat("cert.pem"); os.IsNotExist(err) {
+		fmt.Println("Generating perm")
+		genPem()
+	}
+
+	if _, err := os.Stat("key.pem"); os.IsNotExist(err) {
+		fmt.Println("Generating perm")
+		genPem()
+	}
+
+}
+
+func genPem() {
+
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	checkError(err)
+
+	SNLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	SN, err := rand.Int(rand.Reader, SNLimit)
+	checkError(err)
+
+	template := x509.Certificate{
+		IsCA:         true,
+		SerialNumber: SN,
+		Subject: pkix.Name{
+			Organization: []string{"test"},
+		},
+		NotBefore: time.Now(),
+		NotAfter:  time.Now().Add(365 * 24 * time.Hour),
+
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
+		BasicConstraintsValid: true,
+	}
+	template.DNSNames = append(template.DNSNames, "localhost")
+	template.EmailAddresses = append(template.EmailAddresses, "test@test.com")
+
+	certBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
+	checkError(err)
+
+	certFile, err := os.Create("cert.pem")
+	checkError(err)
+	checkError(pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: certBytes}))
+	checkError(certFile.Close())
+
+	keyFile, err := os.OpenFile("key.pem", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	checkError(err)
+	checkError(pem.Encode(keyFile, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)}))
+	checkError(keyFile.Close())
+}
+
+func checkError(err error) {
+	if err != nil {
+		panic(err)
+	}
 }
