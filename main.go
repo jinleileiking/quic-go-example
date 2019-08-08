@@ -30,6 +30,7 @@ var isRandom = flag.Bool("r", false, "[client] use random string, works with rle
 var rlen = flag.Int("rlen", 10, "[client] random string len, works with r")
 var dump = flag.Bool("d", false, "dump content?")
 var echo = flag.Bool("e", true, "echo / check  echo the data?")
+var auth = flag.Bool("auth", false, "use mutual auth?")
 
 func initLog() {
 
@@ -105,6 +106,10 @@ func server(serverInfo string) error {
 		if err != nil {
 			return err
 		}
+		defer func() {
+			log.Info("Session closed...")
+			sess.Close()
+		}()
 		log.Info("Accept done")
 
 		go func() {
@@ -112,6 +117,10 @@ func server(serverInfo string) error {
 			if err != nil {
 				log.Errorf("AcceptStream error %s\n", err.Error())
 			}
+			defer func() {
+				log.Info("Stream closed...")
+				stream.Close()
+			}()
 
 			if *echo {
 
@@ -175,10 +184,15 @@ func client(serverInfo string) error {
 	pool.AppendCertsFromPEM(caCrt)
 
 	log.Info("Dialing....")
-	session, err := quic.DialAddr(serverInfo, &tls.Config{RootCAs: pool, InsecureSkipVerify: false}, &quic.Config{IdleTimeout: 50 * time.Minute})
+
+	session, err := quic.DialAddr(serverInfo, &tls.Config{RootCAs: pool, InsecureSkipVerify: !*auth}, &quic.Config{IdleTimeout: 50 * time.Minute})
 	if err != nil {
 		return err
 	}
+	defer func() {
+		log.Info("Session closed...")
+		session.Close()
+	}()
 
 	log.Info("Dial Ok")
 
@@ -186,6 +200,13 @@ func client(serverInfo string) error {
 	if err != nil {
 		return errors.Wrap(err, "OpenStreamSync failed")
 	}
+
+	log.Infof("OpenStreamSync, stream id :%d", stream.StreamID())
+
+	defer func() {
+		log.Info("Stream closed...")
+		stream.Close()
+	}()
 
 	log.Info("Sync Ok")
 
@@ -232,6 +253,8 @@ func client(serverInfo string) error {
 				} else {
 					log.Infof("Client: Got %d bytes\n", n)
 				}
+
+				log.Infof("Client: Got Total: %d\n", rcvTotalLen)
 
 			}
 
