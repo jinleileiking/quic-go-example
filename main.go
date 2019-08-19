@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	mrand "math/rand"
 	"os"
+	"sync"
 	"time"
 
 	quic "github.com/lucas-clemente/quic-go"
@@ -28,9 +29,11 @@ var cnt = flag.Int("c", 1, "[client] send count")
 var message = flag.String("m", "hello gquic from client", "[client] send content")
 var isRandom = flag.Bool("r", false, "[client] use random string, works with rlen")
 var rlen = flag.Int("rlen", 10, "[client] random string len, works with r")
+var loop = flag.Bool("loop", false, "[client] forever sends data")
 var dump = flag.Bool("d", false, "dump content?")
 var echo = flag.Bool("e", true, "echo / check  echo the data?")
 var auth = flag.Bool("auth", false, "use mutual auth?")
+var con = flag.Int("con", 1, "concurrent clients initiated sessions")
 
 func initLog() {
 
@@ -48,11 +51,20 @@ func main() {
 	initLog()
 	flag.Parse()
 	if *typ == "client" {
-		err := client(*serverInfo)
-		if err != nil {
-			panic(err)
+
+		var wg sync.WaitGroup
+		for i := 0; i < *con; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				err := client(*serverInfo)
+				if err != nil {
+					panic(err)
+				}
+				log.Info("Done")
+			}()
 		}
-		log.Info("Done")
+		wg.Wait()
 		return
 	}
 
@@ -217,12 +229,16 @@ func client(serverInfo string) error {
 			msg = RandStringRunes(*rlen)
 		}
 
-		if *dump {
-			log.Infof("Client: Snd '%s', count : %d\n", msg, c)
-		} else {
-			log.Infof("Client: Snd count : %d\n", c)
+		if *loop {
+			c = 0
 		}
-		startTime := time.Now()
+
+		if *dump {
+			log.Infof("Client %s: Snd '%s', count : %d\n", session.LocalAddr(), msg, c)
+		} else {
+			log.Infof("Client %s: Snd count : %d\n", session.LocalAddr(), c)
+		}
+		// startTime := time.Now()
 		var writeBytes int
 		writeBytes, err = stream.Write([]byte(msg))
 		if err != nil {
@@ -264,8 +280,8 @@ func client(serverInfo string) error {
 
 		}
 
-		elapsed := time.Since(startTime)
-		log.Infof("Cost: %s\n", elapsed)
+		// elapsed := time.Since(startTime)
+		// log.Infof("Cost: %s\n", elapsed)
 
 		if *cnt != 1 {
 			time.Sleep(time.Duration(*intval) * time.Millisecond)
